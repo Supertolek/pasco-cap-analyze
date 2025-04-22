@@ -1,0 +1,7 @@
+# Ignore all .cap files
+tests/
+*.cap
+
+# Ignore .cpy file
+__pycache__/
+*.cpy

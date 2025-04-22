@@ -1,143 +1,162 @@
-#!/usr/bin/python3 
-
-import sys, os, re
-from struct import *
-from binascii import *
-from itertools import *
-from collections import *
-from math import *
+import sys
+import os
+import re
+from struct import unpack
+from collections import defaultdict
 from zipfile import ZipFile
 
-def grok(fname, size, ark):
-    if size == 0:
+# Function to read and extract binary data from a file in an archive
+def grok(file_name, data_size, archive: ZipFile):
+    if data_size == 0:
         return []
-    # Clean up slashes
-    fname = fname.replace("\\","/")
-    fname = fname.replace("//","/")
+    # Normalize file paths
+    file_name = file_name.replace("\\", "/").replace("//", "/")
     try:
-        with ark.open(fname, 'r') as src:
-            nums = []
-            count = 0
-            data = src.read(12 * size)
-            if not data or len(data) != 12 * size:
-                print("Data set did not contain advertised number of elements:", data==None, len(data), 12*size)
+        with archive.open(file_name, 'r') as source:
+            binary_data = source.read(12 * data_size)
+            if not binary_data or len(binary_data) != 12 * data_size:
+                print("Data set did not contain advertised number of elements:", binary_data is None, len(binary_data), 12 * data_size)
                 return []
-            for k in range(4,12*size,12):
-                nums.append(unpack("d",data[k:k+8])[0])
-            return [nums]
+            # Extract numbers from binary data
+            numbers = [unpack("d", binary_data[offset:offset + 8])[0] for offset in range(4, 12 * data_size, 12)]
+            return [numbers]
     except KeyError:
-        print("Subfile", fname, "not available in archive")
+        print("Subfile", file_name, "not available in archive")
         return []
 
-def transpose(arr):
-    if not arr:
+# Function to transpose a list of lists
+def transpose(array):
+    if not array:
         return []
-    c = max(len(a) for a in arr)
-    ext = [list(a) + [0]*(c - len(a)) for a in arr]
-    return list(zip(*ext))
+    max_length = max(len(sublist) for sublist in array)
+    extended_array = [list(sublist) + [0] * (max_length - len(sublist)) for sublist in array]
+    return list(zip(*extended_array))
 
-def mumpf(doubles):
-    tdoubles = transpose(doubles)
-    return "".join(str(line[0]) + "\t" + str(line[1]) + "\n" for line in tdoubles)
+# Function to format transposed data into tabulated text
+def format_tabulated_data(data):
+    transposed_data = transpose(data)
+    return "".join(f"{line[0]}\t{line[1]}\n" for line in transposed_data)
 
-def segment(text, string):
-    idcs = [-1]
-    while True:
-        i = text.find(string, idcs[-1]+1)
-        idcs.append(i)
-        if i == -1:
-            break
-    return [text[i:j] for i,j in zip(idcs[1:],idcs[2:])]
+# Function to split a text into subsections based on a given string
+def segment(text: str, delimiter: str) -> list[str]:
+    """Splits the given text with the given delimiter, and keep the delimiter within the splited text.
+    
+    :param text: The text to split
+    :type text: str
+    :param delimiter: The delimiter of the substrings created
+    :type delimiter: str
+    
+    :return: The splited text
+    :rtype: list[str]"""
+    # Use regular expressions to find all occurrences of the delimiter
+    matches = [match.start() for match in re.finditer(re.escape(delimiter), text)]
+    matches.append(len(text))  # Add the end of the text as the last index
+    return [text[start:end] for start, end in zip(matches, matches[1:])]
 
+# Regular expressions to extract specific information
+dependent_file_pattern = re.compile(r"<DependentStorageElement [^>]*FileName=\"([^\"]+)\"")
+independent_file_pattern = re.compile(r"<IndependentStorageElement [^>]*FileName=\"([^\"]+)\"")
+time_step_pattern = re.compile(r"<IndependentStorageElement [^>]*IntervalCacheInterval=\"([^\"]+)\"")
+data_group_number_pattern = re.compile(r"DataGroupNumber=\"([^\"]+)\"")
+data_size_pattern = re.compile(r"DataCacheDataSize=\"([^\"]+)\"")
 
-matcherDep = re.compile("<DependentStorageElement [^>]*FileName=\"([^\"]+)\"")
-matcherIndep = re.compile("<IndependentStorageElement [^>]*FileName=\"([^\"]+)\"")
-matcherTS = re.compile("<IndependentStorageElement [^>]*IntervalCacheInterval=\"([^\"]+)\"")
-matcherNumber = re.compile("DataGroupNumber=\"([^\"]+)\"")
-matcherSize = re.compile("DataCacheDataSize=\"([^\"]+)\"")
-def grab_sets(text):
-    dep = list(re.findall(matcherDep, text))
-    indep = list(re.findall(matcherIndep, text))
-    group = list(re.findall(matcherNumber, text))
-    ts = list(re.findall(matcherTS, text))
-    s = list(re.findall(matcherSize,text))
-    if len(s) > 1 and s[0] != s[1]:
+# Function to extract data sets from an XML segment
+def extract_data_sets(xml_segment):
+    dependent_files = list(re.findall(dependent_file_pattern, xml_segment))
+    independent_files = list(re.findall(independent_file_pattern, xml_segment))
+    group_numbers = list(re.findall(data_group_number_pattern, xml_segment))
+    time_steps = list(re.findall(time_step_pattern, xml_segment))
+    data_sizes = list(re.findall(data_size_pattern, xml_segment))
+    
+    if len(data_sizes) > 1 and data_sizes[0] != data_sizes[1]:
         print("Warning: size mismatch")
-    if dep and indep and group and s:
-        return int(group[0]), indep[0], dep[0], int(s[0])
-    if dep and ts and group and s:
-        return int(group[0]), float(ts[0]), dep[0], int(s[0])
-    print("could not parse: dep,indep,ts,group,s = ",dep,indep,ts,group,s)
-    return None,None,None,None
+    
+    if dependent_files and independent_files and group_numbers and data_sizes:
+        return int(group_numbers[0]), independent_files[0], dependent_files[0], int(data_sizes[0])
+    if dependent_files and time_steps and group_numbers and data_sizes:
+        return int(group_numbers[0]), float(time_steps[0]), dependent_files[0], int(data_sizes[0])
+    
+    print("Could not parse: dependent_files, independent_files, time_steps, group_numbers, data_sizes =", dependent_files, independent_files, time_steps, group_numbers, data_sizes)
+    return None, None, None, None
 
-def diff(x):
-    return map(lambda g: g[1]-g[0], zip(x,x[1:]))
+# Function to calculate differences between consecutive elements in a list
+def calculate_differences(values):
+    return map(lambda pair: pair[1] - pair[0], zip(values, values[1:]))
 
-matchDataType = re.compile("MeasurementName=\"([^\"]+)\"")
-matchDataChannel = re.compile(" ChannelIDName=\"([^\"]+)\"")# space before disambiguates
-matchSetNo = re.compile("ZTDDRBPUsageName=\"[^\"#]*#([0-9]*)[^\"]*\"")
-matchResult = re.compile("ZCFDICurveFitParameterResultValue=\"([^\"]+)\"")
+# Regular expressions to extract additional information
+data_type_pattern = re.compile(r"MeasurementName=\"([^\"]+)\"")
+data_channel_pattern = re.compile(r" ChannelIDName=\"([^\"]+)\"")
+set_number_pattern = re.compile(r"ZTDDRBPUsageName=\"[^\"#]*#([0-9]*)[^\"]*\"")
+curve_fit_result_pattern = re.compile(r"ZCFDICurveFitParameterResultValue=\"([^\"]+)\"")
 
-def process(ark, dirn):
-    text = str(ark.read("main.xml"))
-    data = defaultdict(dict)
-    for seg in segment(text, "<DataSource "):
-        label = list(re.findall(matchDataType, seg))
-        if not label:
+# Main function to process data in an archive
+def process_archive(archive: ZipFile, output_directory):
+
+    main_xml_content = str(archive.read("main.xml"))
+    data_sets = defaultdict(dict) # Creates a dictionary in which accessing missing keys gives an empty dict
+    
+    # Extract data sets
+    for data_source_segment in segment(main_xml_content, "<DataSource "):
+        labels = list(re.findall(data_type_pattern, data_source_segment))
+        if not labels:
             continue
-        lblstr = label[0]
-        channel = list(re.findall(matchDataChannel, seg))
-        if channel:
-            lblstr += "-" + channel[0]
-        for subseg in segment(seg, "<DataSet"):
-            number, x, y, s = grab_sets(subseg)
-            print(number,x,y,s,label)
-            if number is None:
+        label_string = labels[0]
+        channels = list(re.findall(data_channel_pattern, data_source_segment))
+        if channels:
+            label_string += "-" + channels[0]
+        
+        for data_set_segment in segment(data_source_segment, "<DataSet"):
+            group_number, x_data, y_data, data_size = extract_data_sets(data_set_segment)
+            print(group_number, x_data, y_data, data_size, labels)
+            if group_number is None:
                 continue
-            data[number][lblstr] = (x,y,s)
-
-    # curve fit parameters (let's not trust these completely)
-    fits = {}
-    for seg in segment(text, "<ZRSIndividualRenederer"):
-        name = list(re.findall(matchSetNo, seg))
-        segments = segment(seg, "<ZCFDICurveFitParameterDefinition")
-        if len(segments) != 2:
+            data_sets[group_number][label_string] = (x_data, y_data, data_size)
+    
+    # Extract curve parameters
+    curve_fit_parameters = {}
+    for renderer_segment in segment(main_xml_content, "<ZRSIndividualRenederer"):
+        set_numbers = list(re.findall(set_number_pattern, renderer_segment))
+        parameter_segments = segment(renderer_segment, "<ZCFDICurveFitParameterDefinition")
+        if len(parameter_segments) != 2:
             continue
-        segi, segs = segments
-        slp = list(re.findall(matchResult, segs))
-        intsc = list(re.findall(matchResult, segi))
-        if name and slp and intsc:
-            fits[int(name[0])] = (float(intsc[0]),float(slp[0]))
-
-    if not os.path.exists(dirn+"/"):
-        os.mkdir(dirn+"/")
-    for number, val in sorted(list(data.items()), key=lambda x:x[0]):
-        text = "# dump from cap file\n@WITH G0\n@G0 ON\n"
-        i = 0
-        for label, (x,y,s) in sorted(list(val.items()),key=lambda x:x[0]):
-            if s == 0:# no data for set
+        intercept_segment, slope_segment = parameter_segments
+        slopes = list(re.findall(curve_fit_result_pattern, slope_segment))
+        intercepts = list(re.findall(curve_fit_result_pattern, intercept_segment))
+        if set_numbers and slopes and intercepts:
+            curve_fit_parameters[int(set_numbers[0])] = (float(intercepts[0]), float(slopes[0]))
+    
+    # Create output directory
+    if not os.path.exists(output_directory + "/"):
+        os.mkdir(output_directory + "/")
+    
+    # Generate output files
+    for group_number, group_data in sorted(data_sets.items(), key=lambda item: item[0]):
+        output_text = "# dump from cap file\n@WITH G0\n@G0 ON\n"
+        legend_index = 0
+        for label, (x_data, y_data, data_size) in sorted(group_data.items(), key=lambda item: item[0]):
+            if data_size == 0:  # No data for this set
                 continue
-            print("Processing:", number,i,label)
-            prefix = "# %d, field \"%s\", from %s and %s.\n@TYPE xy\n@    legend string %d \"%s\"\n" % (number,label,str(x),y,i,label)
-            i += 1
-            if type(x) == float:
-                dep = grok(y,s, ark)
-                if not dep:
+            print("Processing:", group_number, legend_index, label)
+            prefix = f"# {group_number}, field \"{label}\", from {x_data} and {y_data}.\n@TYPE xy\n@    legend string {legend_index} \"{label}\"\n"
+            legend_index += 1
+            if isinstance(x_data, float):
+                dependent_data = grok(y_data, data_size, archive)
+                if not dependent_data:
                     continue
-                indep = [[x*i for i in range(len(dep[0]))]]
-                things = indep + dep
+                independent_data = [[x_data * i for i in range(len(dependent_data[0]))]]
+                combined_data = independent_data + dependent_data
             else:
-                things = grok(x,s,ark) + grok(y,s,ark)
-            if not things:
-                print("failed to read:",i,x,y,s,number)
+                combined_data = grok(x_data, data_size, archive) + grok(y_data, data_size, archive)
+            if not combined_data:
+                print("Failed to read:", legend_index, x_data, y_data, data_size, group_number)
                 continue
-            body = mumpf(things)
-            text += (prefix + body + "&\n")
-        open(dirn+"/set"+str(number)+".txt", "w").write(text);
+            body = format_tabulated_data(combined_data)
+            output_text += (prefix + body + "&\n")
+        open(f"{output_directory}/set{group_number}.txt", "w").write(output_text)
 
-
+# Main entry point
 if __name__ == "__main__":
-    indexfile = sys.argv[1]
-    ark = ZipFile(indexfile, 'r')
-    dirn = ".".join(indexfile.split(".")[:-1])
-    process(ark, dirn)
+    input_file = "tests/test_file.cap"
+    archive = ZipFile(input_file, 'r')
+    output_directory = ".".join(input_file.split(".")[:-1])
+    process_archive(archive, output_directory)
