@@ -1,9 +1,12 @@
 import sys
 import os
 import re
+
 from struct import unpack
-from collections import defaultdict
+
+# Parsing librairies
 from zipfile import ZipFile
+import xml.etree.ElementTree as ET
 
 # Function to read and extract binary data from a file in an archive
 def grok(file_name, data_size, archive: ZipFile):
@@ -92,29 +95,52 @@ curve_fit_result_pattern = re.compile(r"ZCFDICurveFitParameterResultValue=\"([^\
 # Main function to process data in an archive
 def process_archive(archive: ZipFile, output_directory):
 
-    main_xml_content = str(archive.read("main.xml"))
-    data_sets = defaultdict(dict) # Creates a dictionary in which accessing missing keys gives an empty dict
+    main_xml_content_str = str(archive.read("main.xml"))
+    main_xml_content = ET.fromstring(archive.read("main.xml"))
+    data_sets = {}
     
-    # Extract data sets
-    for data_source_segment in segment(main_xml_content, "<DataSource "):
-        labels = list(re.findall(data_type_pattern, data_source_segment))
-        if not labels:
+    # -------------------------------------------------------------------------------------------------------
+    # Get the DataSet elements
+    # -------------------------------------------------------------------------------------------------------
+    # data_sets:
+    #     DataSource/DataSet[DataGroupNumber]:
+    #         DataSource[MeasurmentName]-DataSource[ChannelIDName]:
+    #             DataSource/DataSet/DataSegmentElement/DependentStorageElement[FileName]
+    #             DataSource/DataSet/DataSegmentElement/IndependentStorageElement[IntervalCacheInterval|FileName]
+    # -------------------------------------------------------------------------------------------------------
+    data_repository = main_xml_content.find("DataRepository")
+    data_source_elements = data_repository.findall("DataSource")
+
+    for data_source_element in data_source_elements:
+        data_set_elements = data_source_element.findall("DataSet")
+        if not data_set_elements:
             continue
-        label_string = labels[0]
-        channels = list(re.findall(data_channel_pattern, data_source_segment))
-        if channels:
-            label_string += "-" + channels[0]
-        
-        for data_set_segment in segment(data_source_segment, "<DataSet"):
-            group_number, x_data, y_data, data_size = extract_data_sets(data_set_segment)
-            print(group_number, x_data, y_data, data_size, labels)
-            if group_number is None:
-                continue
-            data_sets[group_number][label_string] = (x_data, y_data, data_size)
+        else:
+            # -----------------------------------------------------------------------------------------------
+            # Retrieve all the informations about a DataSource
+            # -----------------------------------------------------------------------------------------------
+            measurment_name = data_source_element.get("MeasurementName")
+            channel_id_name = data_source_element.get("ChannelIDName")
+            for data_set_element in data_set_elements:
+                data_segment_element  = data_set_element.find("DataSegmentElement")
+                dependent_file        = data_segment_element.find("DependentStorageElement")
+                independent_file      = data_segment_element.find("IndependentStorageElement")
+                group_number          = int(data_set_element.get("DataGroupNumber"))
+                data_size             = int(dependent_file.get("DataCacheDataSize"))
+                dependent_file_name   = dependent_file.get("FileName")
+                independent_file_name = independent_file.get("FileName")
+                if not independent_file_name:
+                    independent_file_name = float(independent_file.get("IntervalCacheInterval"))
+                # Safety, to later remove the strange defaultdict(dict)
+                if not group_number in data_sets:
+                    data_sets[group_number] = {}
+                # Add the set to data_sets
+                data_sets[group_number][measurment_name + ("-" + channel_id_name if channel_id_name else "")] = (independent_file_name, dependent_file_name, data_size)
+    print(data_sets)
     
     # Extract curve parameters
     curve_fit_parameters = {}
-    for renderer_segment in segment(main_xml_content, "<ZRSIndividualRenederer"):
+    for renderer_segment in segment(main_xml_content_str, "<ZRSIndividualRenederer"):
         set_numbers = list(re.findall(set_number_pattern, renderer_segment))
         parameter_segments = segment(renderer_segment, "<ZCFDICurveFitParameterDefinition")
         if len(parameter_segments) != 2:
@@ -136,7 +162,7 @@ def process_archive(archive: ZipFile, output_directory):
         for label, (x_data, y_data, data_size) in sorted(group_data.items(), key=lambda item: item[0]):
             if data_size == 0:  # No data for this set
                 continue
-            print("Processing:", group_number, legend_index, label)
+            # print("Processing:", group_number, legend_index, label)
             prefix = f"# {group_number}, field \"{label}\", from {x_data} and {y_data}.\n@TYPE xy\n@    legend string {legend_index} \"{label}\"\n"
             legend_index += 1
             if isinstance(x_data, float):
