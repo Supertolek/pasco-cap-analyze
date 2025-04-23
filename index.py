@@ -1,4 +1,4 @@
-import os
+import os, sys
 from typing import Self
 
 from struct import unpack
@@ -93,8 +93,6 @@ class DataSet:
             raise TypeError(
                 f"The given data is in the wrong format. Expected list (or Array like), got {type(self.x_values)} and  {type(self.y_values)}."
             )
-        print(len(self.x_values), len(self.y_values))
-        print(self.x_values, self.y_values)
         plt.plot(self.x_values, self.y_values)
         if show:
             plt.show()
@@ -231,8 +229,8 @@ class CapstoneFile:
         for group_id, group in self.data_sets.items():
             columns = []
             for data_set in group:
-                column_x = ["", data_set.name]
-                column_y = ["", ""]
+                column_x = ["", data_set.name, "x-axis"]
+                column_y = ["", "", "y-axis"]
                 if type(data_set.x_values) == list and type(data_set.y_values) == list:
                     column_x.extend(data_set.x_values)
                     column_y.extend(data_set.y_values)
@@ -279,3 +277,39 @@ class CapstoneFile:
 
     def __str__(self):
         return self.__repr__()
+
+
+if __name__ == "__main__":
+    # Check if a file path is provided as a command-line argument
+    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
+        # Create a CapstoneFile object from the provided file path
+        capstone_file = CapstoneFile(sys.argv[1])
+
+        # Check if the user wants to export the data to a CSV file
+        if "-to-csv" in sys.argv and sys.argv.index("-to-csv") < len(sys.argv) - 1:
+            # Open the specified output file for writing
+            with open(sys.argv[sys.argv.index("-to-csv") + 1], "w") as capstone_csv_output:
+                # Generate CSV content with the specified or default separators
+                capstone_file_csv = capstone_file.to_csv(
+                    cell_separator=sys.argv[sys.argv.index("-csv-sep") + 1]
+                    if "-csv-sep" in sys.argv and sys.argv.index("-csv-sep") < len(sys.argv) - 1
+                    and len(sys.argv[sys.argv.index("-csv-sep") + 1]) == 1
+                    else ";",
+                    decimal_separator=sys.argv[sys.argv.index("-csv-dec") + 1]
+                    if "-csv-dec" in sys.argv and sys.argv.index("-csv-dec") < len(sys.argv) - 1
+                    and len(sys.argv[sys.argv.index("-csv-dec") + 1]) == 1
+                    else "."
+                )
+
+                # Write the CSV content to the output file
+                capstone_csv_output.write(capstone_file_csv)
+        elif "-to-csv" in sys.argv:
+            print("Error: Missing output file path for CSV export.")
+
+        # Check if the user wants to plot the data
+        if "-plot" in sys.argv:
+            capstone_file.plot()
+        elif "-to-csv" not in sys.argv and "-plot" not in sys.argv:
+            print("Error: No valid operation specified. Use '-to-csv' or '-plot'.")
+    else:
+        print("Error: No valid file path provided or file does not exist.")
