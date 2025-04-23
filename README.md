@@ -34,4 +34,9 @@ For now, there isn't much more, but you can contribute, or contact me:
 
 ## Thanks
 
-Thanks to [mstoeckl](https://github.com/mstoeckl) for making the [original project](https://github.com/mstoeckl/pascapalyze).
+Thanks to [mstoeckl](https://github.com/mstoeckl) for making the original project (https://github.com/mstoeckl/pascapalyze).
+
+Thanks to everyone willing to contribute and to add support for other files format or functionnalities ❤️.
+
+pasco-capstone-analyze by Thomas Le Quéré is marked with CC0 1.0.  
+To view a copy of this license, visit https://creativecommons.org/publicdomain/zero/1.0/
