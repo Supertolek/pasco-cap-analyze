@@ -217,10 +217,11 @@ class CapstoneFile:
                     )
         return data_sets
 
-    def plot(self):
+    def plot(self, series: list[int] | None = None):
         for group_id, group in self.data_sets.items():
-            for data_set in group:
-                data_set.plot(False)
+            if not series or group_id in series:
+                for data_set in group:
+                    data_set.plot(False)
         plt.show()
 
     def to_csv(self, decimal_separator: str = ".", cell_separator: str = ";"):
