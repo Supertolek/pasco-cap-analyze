@@ -218,10 +218,12 @@ class CapstoneFile:
         return data_sets
 
     def plot(self, series: list[int] | None = None):
+        actual_index = 0
         for group_id, group in self.data_sets.items():
-            if not series or group_id in series:
-                for data_set in group:
+            for data_set in group:
+                if not series or actual_index in series:
                     data_set.plot(False)
+                actual_index += 1
         plt.show()
 
     def to_csv(self, decimal_separator: str = ".", cell_separator: str = ";"):
@@ -309,7 +311,7 @@ if __name__ == "__main__":
 
         # Check if the user wants to plot the data
         if "-plot" in sys.argv:
-            capstone_file.plot()
+            capstone_file.plot([0])
         elif "-to-csv" not in sys.argv and "-plot" not in sys.argv:
             print("Error: No valid operation specified. Use '-to-csv' or '-plot'.")
     else:
